@@ -1,7 +1,13 @@
-all: ressible hci.c hcitool.c cJSON.c
+APP=ressible
+OBJS=hci.o ressible.o cJSON.o bluetooth.o
 
-ressible: hci.o hcitool.o bluetooth.o cJSON.o
-	gcc -o ressible hci.o hcitool.o bluetooth.o cJSON.o
+all: $(APP)
+
+ressible: $(OBJS)
+	gcc -o $(APP) $(OBJS)
 
 %.o: %.c %.h
 	gcc -g -o $*.o -c $*.c
+
+clean:
+	rm -f $(OBJS)
