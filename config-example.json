@@ -1,0 +1,15 @@
+{
+    "mac_filter":"2C:",
+    "interfaces": [
+        {
+            "addr": "00:E0:4C:2F:1C:3D",
+            "angle": 180,
+            "name": "Crown 1 Back"
+        },
+        {
+            "addr": "00:E0:4C:31:91:D8",
+            "angle": 270,
+            "name": "Crown 1 Side"
+        }
+    ]
+}
