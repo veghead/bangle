@@ -30,11 +30,11 @@
 #include <sys/socket.h>
 #include <syslog.h>
 #include <signal.h>
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/hci.h>
+#include <bluetooth/hci_lib.h>
 #include "cJSON.h"
 
-#include "bluetooth.h"
-#include "hci.h"
-#include "hci_lib.h"
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -81,9 +81,43 @@ static volatile int signal_received = 0;
 
 static void usage(void);
 
+static void print_dev_list(int ctl, int flags)
+{
+    static struct hci_dev_info di;
+    struct hci_dev_list_req *dl;
+    struct hci_dev_req *dr;
+    char addr[18];
+    int i;
+
+    if (!(dl = malloc(HCI_MAX_DEV * sizeof(struct hci_dev_req) +
+        sizeof(uint16_t)))) {
+        perror("Can't allocate memory");
+        exit(1);
+    }
+    dl->dev_num = HCI_MAX_DEV;
+    dr = dl->dev_req;
+
+    if (ioctl(ctl, HCIGETDEVLIST, (void *) dl) < 0) {
+        perror("Can't get device list");
+        free(dl);
+        exit(1);
+    }
+
+    for (i = 0; i< dl->dev_num; i++) {
+        di.dev_id = (dr+i)->dev_id;
+        if (ioctl(ctl, HCIGETDEVINFO, (void *) &di) < 0)
+            continue;
+        ba2str(&di.bdaddr, addr);
+        printf("%d:%s\n", di.dev_id, addr);
+    }
+
+    free(dl);
+}
+
 static void sigint_handler(int sig)
 {
     signal_received = sig;
+
 }
 
 static void eir_parse_name(uint8_t *eir, size_t eir_len,
@@ -790,7 +824,7 @@ hciconfig *read_config(const char *filename)
 
 int main(int argc, char *argv[])
 {
-	int opt, i, dev_id = -1;
+	int ctl, opt, i, dev_id = -1;
 	bdaddr_t ba;
     hciconfig* hci_config = NULL;
     
@@ -811,6 +845,15 @@ int main(int argc, char *argv[])
 			exit(0);
 		}
 	}
+
+    
+    /* Open HCI socket  */
+    if ((ctl = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI)) < 0) {
+        perror("Can't open HCI socket.");
+        exit(1);
+    }
+
+    print_dev_list(ctl, 0);
 
 
     exit(0);

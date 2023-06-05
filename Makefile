@@ -1,12 +1,12 @@
-APP=ressible
-OBJS=hci.o ressible.o cJSON.o bluetooth.o
+APP=bangle
+OBJS=hci.o bangle.o cJSON.o bluetooth.o
 
 all: $(APP)
 
-ressible: $(OBJS)
+$(APP): $(OBJS)
 	gcc -o $(APP) $(OBJS)
 
-%.o: %.c %.h
+%.o: %.c
 	gcc -g -o $*.o -c $*.c
 
 clean:
