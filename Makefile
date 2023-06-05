@@ -1,5 +1,5 @@
 APP=bangle
-OBJS=hci.o bangle.o cJSON.o bluetooth.o
+OBJS=hci.o hciwrap.o bangle.o cJSON.o bluetooth.o
 
 all: $(APP)
 

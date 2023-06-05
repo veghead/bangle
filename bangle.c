@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
+#include <stdbool.h>
 #include <sys/param.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -33,6 +34,7 @@
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
+#include "hciwrap.h"
 #include "cJSON.h"
 
 
@@ -69,50 +71,19 @@ typedef struct {
     char *addr;
     uint8_t angle;
     char *name;
+    int dev_id;
 } if_desc;
 
 typedef struct {
     char *mac_filter;
     if_desc interfaces[MAX_IFS];
     uint8_t num_interfaces;
+    bool verbose;
 } hciconfig;
 
 static volatile int signal_received = 0;
 
 static void usage(void);
-
-static void print_dev_list(int ctl, int flags)
-{
-    static struct hci_dev_info di;
-    struct hci_dev_list_req *dl;
-    struct hci_dev_req *dr;
-    char addr[18];
-    int i;
-
-    if (!(dl = malloc(HCI_MAX_DEV * sizeof(struct hci_dev_req) +
-        sizeof(uint16_t)))) {
-        perror("Can't allocate memory");
-        exit(1);
-    }
-    dl->dev_num = HCI_MAX_DEV;
-    dr = dl->dev_req;
-
-    if (ioctl(ctl, HCIGETDEVLIST, (void *) dl) < 0) {
-        perror("Can't get device list");
-        free(dl);
-        exit(1);
-    }
-
-    for (i = 0; i< dl->dev_num; i++) {
-        di.dev_id = (dr+i)->dev_id;
-        if (ioctl(ctl, HCIGETDEVINFO, (void *) &di) < 0)
-            continue;
-        ba2str(&di.bdaddr, addr);
-        printf("%d:%s\n", di.dev_id, addr);
-    }
-
-    free(dl);
-}
 
 static void sigint_handler(int sig)
 {
@@ -260,35 +231,6 @@ static int conn_list(int s, int dev_id, long arg)
 			addr, ci->handle, ci->state, str);
 		bt_free(str);
 	}
-
-	free(cl);
-	return 0;
-}
-
-static int find_conn(int s, int dev_id, long arg)
-{
-	struct hci_conn_list_req *cl;
-	struct hci_conn_info *ci;
-	int i;
-
-	if (!(cl = malloc(10 * sizeof(*ci) + sizeof(*cl)))) {
-		perror("Can't allocate memory");
-		exit(1);
-	}
-	cl->dev_id = dev_id;
-	cl->conn_num = 10;
-	ci = cl->conn_info;
-
-	if (ioctl(s, HCIGETCONNLIST, (void *) cl)) {
-		perror("Can't get connection list");
-		exit(1);
-	}
-
-	for (i = 0; i < cl->conn_num; i++, ci++)
-		if (!bacmp((bdaddr_t *) arg, &ci->bdaddr)) {
-			free(cl);
-			return 1;
-		}
 
 	free(cl);
 	return 0;
@@ -594,15 +536,16 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 			goto done;
 
 		info = (le_advertising_info *) (meta->data + 1);
-			char name[30];
+		char name[30];
 
-			memset(name, 0, sizeof(name));
+		memset(name, 0, sizeof(name));
 
-			ba2str(&info->bdaddr, addr);
-			eir_parse_name(info->data, info->length,
+		ba2str(&info->bdaddr, addr);
+		eir_parse_name(info->data, info->length,
 							name, sizeof(name) - 1);
 
-			printf("%s %s\n", addr, name);
+            //syslog(LOG_INFO, "%s %s", addr, name);
+            printf("%s %s\n", addr, name);
 	}
 
 done:
@@ -626,105 +569,61 @@ static struct option lescan_options[] = {
 	{ 0, 0, 0, 0 }
 };
 
-static const char *lescan_help =
-	"Usage:\n"
-	"\tlescan [--privacy] enable privacy\n"
-	"\tlescan [--passive] set scan type passive (default active)\n"
-	"\tlescan [--acceptlist] scan for address in the accept list only\n"
-	"\tlescan [--discovery=g|l] enable general or limited discovery"
-		"procedure\n"
-	"\tlescan [--duplicates] don't filter duplicates\n";
-
 static void cmd_lescan(int dev_id, int argc, char **argv)
 {
-	int err, opt, dd;
-	uint8_t own_type = LE_PUBLIC_ADDRESS;
-	uint8_t scan_type = 0x01;
-	uint8_t filter_type = 0;
-	uint8_t filter_policy = 0x00;
-	uint16_t interval = htobs(0x0010);
-	uint16_t window = htobs(0x0010);
-	uint8_t filter_dup = 0x01;
+    int err, opt, dd;
+    uint8_t own_type = LE_PUBLIC_ADDRESS;
+    uint8_t scan_type = 0x00;
+    uint8_t filter_type = 0;
+    uint8_t filter_policy = 0x00;
+    uint16_t interval = htobs(0x0010);
+    uint16_t window = htobs(0x0010);
+    uint8_t filter_dup = 0x01;
 
-	for_each_opt(opt, lescan_options, NULL) {
-		switch (opt) {
-		case 's':
-			own_type = LE_RANDOM_ADDRESS;
-			break;
-		case 'p':
-			own_type = LE_RANDOM_ADDRESS;
-			break;
-		case 'P':
-			scan_type = 0x00; /* Passive */
-			break;
-		case 'w': /* Deprecated. Kept for compatibility. */
-		case 'a':
-			filter_policy = 0x01; /* Accept list */
-			break;
-		case 'd':
-			filter_type = optarg[0];
-			if (filter_type != 'g' && filter_type != 'l') {
-				fprintf(stderr, "Unknown discovery procedure\n");
-				exit(1);
-			}
+    if (dev_id < 0)
+        dev_id = hci_get_route(NULL);
 
-			interval = htobs(0x0012);
-			window = htobs(0x0012);
-			break;
-		case 'D':
-			filter_dup = 0x00;
-			break;
-		default:
-			printf("%s", lescan_help);
-			return;
-		}
-	}
-	helper_arg(0, 1, &argc, &argv, lescan_help);
+    dd = hci_open_dev(dev_id);
+   if (dd < 0) {
+        perror("Could not open device");
+        exit(1);
+    }
 
-	if (dev_id < 0)
-		dev_id = hci_get_route(NULL);
+    err = hci_le_set_scan_parameters(dd, scan_type, interval, window,
+                        own_type, filter_policy, 10000);
+    if (err < 0) {
+        perror("Set scan parameters failed");
+        exit(1);
+    }
 
-	dd = hci_open_dev(dev_id);
-	if (dd < 0) {
-		perror("Could not open device");
-		exit(1);
-	}
+    err = hci_le_set_scan_enable(dd, 0x01, filter_dup, 10000);
+    if (err < 0) {
+        perror("Enable scan failed");
+        exit(1);
+    }
 
-	err = hci_le_set_scan_parameters(dd, scan_type, interval, window,
-						own_type, filter_policy, 10000);
-	if (err < 0) {
-		perror("Set scan parameters failed");
-		exit(1);
-	}
+    printf("LE Scan ...\n");
 
-	err = hci_le_set_scan_enable(dd, 0x01, filter_dup, 10000);
-	if (err < 0) {
-		perror("Enable scan failed");
-		exit(1);
-	}
+    err = print_advertising_devices(dd, filter_type);
+    if (err < 0) {
+        perror("Could not receive advertising events");
+        exit(1);
+    }
 
-	printf("LE Scan ...\n");
+    err = hci_le_set_scan_enable(dd, 0x00, filter_dup, 10000);
+    if (err < 0) {
+        perror("Disable scan failed");
+        exit(1);
+    }
 
-	err = print_advertising_devices(dd, filter_type);
-	if (err < 0) {
-		perror("Could not receive advertising events");
-		exit(1);
-	}
-
-	err = hci_le_set_scan_enable(dd, 0x00, filter_dup, 10000);
-	if (err < 0) {
-		perror("Disable scan failed");
-		exit(1);
-	}
-
-	hci_close_dev(dd);
+    hci_close_dev(dd);
 }
 
 static void usage(void)
 {
 	int i;
 
-	printf("hcitool - HCI Tool ver %s\n", VERSION);
+	printf("bangle - HCI Tool ver %s\n", VERSION);
 	printf("Usage:\n"
 		"\thcitool [options] <command> [command parameters]\n");
 	printf("Options:\n"
@@ -765,6 +664,9 @@ static void load_interfaces_from_json(hciconfig* config, cJSON* if_list)
         if (cJSON_IsNumber(angle)) {
             config->interfaces[ifnum].angle = (uint8_t)name->valueint;
         }
+
+        // This gets filled in later
+        config->interfaces[ifnum].dev_id = -1;
 
         config->num_interfaces = ++ifnum;
     }
@@ -822,14 +724,65 @@ hciconfig *read_config(const char *filename)
     return config;
 }
 
+void set_config_dev_id(hciconfig *config, char *addr, int dev_id)
+{
+    for(int i = 0; i < config->num_interfaces; i++)
+    {
+        if (strcmp(config->interfaces[i].addr, addr) == 0)
+        {
+            config->interfaces[i].dev_id = dev_id;
+            return;
+        }
+    }
+}
+
+int map_dev_ids(hciconfig *config)
+{
+    struct hci_dev_list_req *dl;
+    struct hci_dev_req *dr;
+    struct hci_dev_info di;
+    int ctl;
+
+    if ((ctl = hci_open_socket()) < 0)
+    {
+        exit(1);
+    }
+
+    if (!(dl = calloc(HCI_MAX_DEV, sizeof(struct hci_dev_req) +
+        sizeof(uint16_t)))) {
+        perror("Can't allocate memory");
+        return -1;
+    }
+
+    if (hci_get_devices(ctl, dl) < 0) {
+        fprintf(stderr, "Can't get device list");
+        return -1;
+    }
+
+    dr = dl->dev_req;
+
+    char addr[18];
+
+    for (int i = 0; i< dl->dev_num; i++) {
+        di.dev_id = (dr+i)->dev_id;
+        if (hci_get_device_info(ctl, &di) < 0) {
+            continue;
+        }
+        ba2str(&di.bdaddr, addr);
+        set_config_dev_id(config, addr, i);
+    }
+
+    close(ctl);
+}
+
 int main(int argc, char *argv[])
 {
-	int ctl, opt, i, dev_id = -1;
+	int opt, i, dev_id = -1;
 	bdaddr_t ba;
     hciconfig* hci_config = NULL;
-    
+    bool verbose;
 
-	while ((opt=getopt_long(argc, argv, "hc:", main_options, NULL)) != -1) {
+	while ((opt=getopt_long(argc, argv, "hc:v", main_options, NULL)) != -1) {
 		switch (opt) {
 		case 'c':
             if (NULL == (hci_config = read_config(optarg))) {
@@ -839,6 +792,9 @@ int main(int argc, char *argv[])
 			//dev_id = hci_devid(optarg);
 			break;
 
+		case 'v':
+            verbose = true;
+            break;
 		case 'h':
 		default:
 			usage();
@@ -846,36 +802,23 @@ int main(int argc, char *argv[])
 		}
 	}
 
-    
-    /* Open HCI socket  */
-    if ((ctl = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI)) < 0) {
-        perror("Can't open HCI socket.");
+    if (!hci_config)
+    {
         exit(1);
     }
 
-    print_dev_list(ctl, 0);
-
-
-    exit(0);
-
-	argc -= optind;
-	argv += optind;
-	optind = 0;
+    hci_config->verbose = verbose;
 
     openlog(NULL, LOG_PID, LOG_USER);
-/*
-	if (argc < 1) {
-		usage();
-		exit(0);
-	}
-*/
 
-	if (dev_id != -1 && hci_devba(dev_id, &ba) < 0) {
-		perror("Device is not available");
-		exit(1);
-	}
+    if (map_dev_ids(hci_config) < 0)
+    {
+        exit(2);
+    }
+    
 
-    cmd_lescan(dev_id, argc, argv);
+    syslog(LOG_INFO, "starting");
+    cmd_lescan(3, argc, argv);
 
 	return 0;
 }
