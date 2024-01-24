@@ -1,0 +1,6 @@
+*.o
+*.log
+*-log
+tags
+bangle
+adlog

@@ -1,40 +1,13 @@
 {
-    "mac_filter":"2C:",
+    "mac_filter": [
+        "2C:C4:07:66:00:E9",
+        "C2:1A:14"
+    ],
     "interfaces": [
         {
-            "addr": "00:E0:4C:2F:1C:3D",
-            "angle": 180,
+            "addr": "B8:27:EB:CA:F8:36",
+            "angle": 0,
             "name": "Crown 1 Back"
-        },
-        {
-            "addr": "00:E0:4C:31:91:EB",
-            "angle": 180,
-            "name": "Crown 1 Back"
-        },
-        {
-            "addr": "00:E0:4C:31:91:EB",
-            "angle": 180,
-            "name": "Crown 3 Back"
-        },
-        {
-            "addr": "00:E0:4C:2F:1F:56",
-            "angle": 180,
-            "name": "Crown 4 Back"
-        },
-        {
-            "addr": "00:E0:4C:2F:1E:9A",
-            "angle": 180,
-            "name": "Crown 5 Back"
-        },
-        {
-            "addr": "00:E0:4C:31:91:DD",
-            "angle": 180,
-            "name": "Crown 6 Back"
-        },
-        {
-            "addr": "00:E0:4C:31:91:D8",
-            "angle": 270,
-            "name": "Crown 7 Side"
         }
     ]
 }

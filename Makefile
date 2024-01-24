@@ -1,10 +1,12 @@
-APP=bangle
-OBJS=hci.o hciwrap.o bangle.o cJSON.o bluetooth.o
+OBJS=hci.o hciwrap.o cJSON.o bluetooth.o
 
-all: $(APP)
+all: adlog bangle
 
-$(APP): $(OBJS)
-	gcc -o $(APP) $(OBJS)
+adlog: $(OBJS) adlog.o
+	gcc -o $@ $(OBJS) $@.o
+
+bangle: $(OBJS) adlog.o
+	gcc -o $@ $(OBJS) $@.o
 
 %.o: %.c
 	gcc -g -o $*.o -c $*.c

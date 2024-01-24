@@ -1188,8 +1188,6 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 		ptr = buf + (1 + HCI_EVENT_HDR_SIZE);
 		len -= (1 + HCI_EVENT_HDR_SIZE);
 
-        printf("Event: %02x\n", hdr->evt);
-
 		switch (hdr->evt) {
 		case EVT_CMD_STATUS:
 			cs = (void *) ptr;
@@ -1238,8 +1236,6 @@ int hci_send_req(int dd, struct hci_request *r, int to)
 
 		case EVT_LE_META_EVENT:
 			me = (void *) ptr;
-			printf("Meta Event: %02x\n", me->subevent);
-            // VEG
 			if ((me->subevent == r->event) || (r->event == EVT_LE_CONN_COMPLETE && me->subevent == 0xA)) {
 				len -= 1;
 				r->rlen = MIN(len, r->rlen);

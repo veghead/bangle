@@ -76,9 +76,15 @@ typedef struct
 	int dev_id;
 } if_desc;
 
+typedef struct mac_filter
+{
+    char *filter;
+    struct mac_filter *next;
+} mac_filter_t;
+
 typedef struct
 {
-	char *mac_filter;
+	mac_filter_t *mac_filters;
 	if_desc interfaces[MAX_IFS];
 	uint8_t num_interfaces;
 } hciconfig;
@@ -158,7 +164,7 @@ static struct option dev_options[] = {
 
 /* Inquiry */
 
-static int print_advertising_devices(int dd, uint8_t filter_type, if_desc *iface, char *filter)
+static int print_advertising_devices(int dd, uint8_t filter_type, if_desc *iface, mac_filter_t *filters)
 {
 	unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr;
 	struct hci_filter nf, of;
@@ -215,10 +221,21 @@ static int print_advertising_devices(int dd, uint8_t filter_type, if_desc *iface
 		memset(name, 0, sizeof(name));
 
 		ba2str(&info->bdaddr, addr);
-        if (strcasestr(addr, filter) == NULL)
-        {
-            continue;
+        mac_filter_t *f = filters;
+        bool found = false;
+        while(f) {
+            if (strcasestr(addr, f->filter) == addr) {
+                found = true;
+                break;
+            }
+            f = f->next;
         }
+        if (!found) continue;
+	    printf("%s:", addr);
+        for (int i = 0; i< info->length; i++) {
+            printf("%02X", info->data[i]);
+        }
+        printf("\n");
         int8_t rssi = get_s8(info->data + info->length);
 		syslog(LOG_INFO, "%s,%s,%d,%d", iface->addr, addr, iface->angle, rssi);
 	}
@@ -232,7 +249,7 @@ done:
 	return 0;
 }
 
-static void lescan(if_desc *iface, char* filter)
+static void lescan(if_desc *iface, mac_filter_t* filter)
 {
 	int err, opt, dd;
 	uint8_t own_type = LE_PUBLIC_ADDRESS;
@@ -286,7 +303,7 @@ static void usage(void)
 {
 	int i;
 
-	printf("bangle - Multi HCI BLE scanner %s\n", VERSION);
+	printf("adlog - HCI BLE scanner %s\n", VERSION);
 	printf("Usage:\n"
 		   "\tbangle [options] -c <config file> [-d] [-v]\n");
 	printf("Options:\n"
@@ -336,6 +353,25 @@ static void load_interfaces_from_json(hciconfig *config, cJSON *if_list)
 	}
 }
 
+void add_mac_filter(mac_filter_t **filters, char *str)
+{
+    if ((*filters) == NULL) {
+        (*filters) = calloc(1,sizeof(mac_filter_t));
+        (*filters)->filter = str;
+        return;
+    }
+    mac_filter_t *p = *filters, *last = p;
+    while (p != NULL) {
+	    if (p->next == NULL) {
+		    last = p;
+        }
+        p = p->next;
+    }
+    p = calloc(1,sizeof(mac_filter_t));
+    p->filter = str;
+    if (last) last->next = p;
+}
+
 hciconfig *read_config(const char *filename)
 {
 	FILE *fp;
@@ -373,8 +409,16 @@ hciconfig *read_config(const char *filename)
 	cJSON *mac_filter = cJSON_GetObjectItemCaseSensitive(json, "mac_filter");
 	if (cJSON_IsString(mac_filter) && (mac_filter->valuestring != NULL))
 	{
-		config->mac_filter = mac_filter->valuestring;
-	}
+		add_mac_filter(&config->mac_filters, mac_filter->valuestring);
+	} else if (cJSON_IsArray(mac_filter)) {
+        cJSON *mac;
+        cJSON_ArrayForEach(mac, mac_filter) {
+            if (cJSON_IsString(mac) && (mac->valuestring != NULL)) {
+		        add_mac_filter(&config->mac_filters, mac->valuestring);
+                printf("Adding: %s\n", mac->valuestring);
+            }
+        }
+    }
 
 	cJSON *if_desc = cJSON_GetObjectItemCaseSensitive(json, "interfaces");
 	if (!cJSON_IsArray(if_desc))
@@ -477,7 +521,7 @@ void start_scanners(hciconfig *config)
 		if (fork() == 0)
 		{
 			syslog(LOG_INFO, "Scanning on device %d", config->interfaces[i].dev_id);
-			lescan(&(config->interfaces[i]), config->mac_filter);
+			lescan(&(config->interfaces[i]), config->mac_filters);
             if (config_verbose)
             {
 		        syslog(LOG_INFO, "Scanner exiting");
