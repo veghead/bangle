@@ -235,8 +235,8 @@ static int print_advertising_devices(int dd, uint8_t filter_type, if_desc *iface
         for (int i = 0; i< info->length; i++) {
             printf("%02X", info->data[i]);
         }
-        printf("\n");
         int8_t rssi = get_s8(info->data + info->length);
+        printf(",%d\n", rssi);
 		syslog(LOG_INFO, "%s,%s,%d,%d", iface->addr, addr, iface->angle, rssi);
 	}
 
@@ -303,7 +303,7 @@ static void usage(void)
 {
 	int i;
 
-	printf("adlog - HCI BLE scanner %s\n", VERSION);
+	printf("adlog - Multi HCI BLE scanner %s\n", VERSION);
 	printf("Usage:\n"
 		   "\tbangle [options] -c <config file> [-d] [-v]\n");
 	printf("Options:\n"
